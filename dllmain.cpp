@@ -5,6 +5,7 @@
 #include <thread>
 #include <chrono>
 #include "discord-files/discord.h"
+#include "discord-files/TriglavPlugInSDK.h"
 
 struct Application {
     struct IDiscordCore* core;
@@ -17,14 +18,17 @@ struct DiscordState {
 
 namespace {
 	volatile bool interrupted{ false };
-}
+};
+
+struct	DiscordPluginInfo
+{
+	TriglavPlugInPropertyService* pPropertyService;
+};
 
 void __stdcall discordEntry() {
-	MessageBox(nullptr, L"idiot", L"", MB_OKCANCEL);
 	DiscordState state{};
 	discord::Core* core{};
-	MessageBox(nullptr, L"baka", L"", MB_OKCANCEL);
-	auto response = discord::Core::Create(461618159171141643, DiscordCreateFlags_Default, &core);
+	auto response = discord::Core::Create(771084728300339251, DiscordCreateFlags_Default, &core);
 	state.core.reset(core);
 
 	if (!state.core) {
@@ -33,26 +37,23 @@ void __stdcall discordEntry() {
 	}
 
 	discord::Activity activity{};
-	activity.SetDetails("Fruit Tarts");
+	activity.SetDetails("Drawing");
 	activity.SetState("Pop Snacks");
-	activity.GetAssets().SetSmallImage("the");
-	activity.GetAssets().SetSmallText("i mage");
-	activity.GetAssets().SetLargeImage("the");
-	activity.GetAssets().SetLargeText("u mage");
+	activity.GetAssets().SetSmallImage("drawing");
+	activity.GetAssets().SetSmallText("Drawing");
+	activity.GetAssets().SetLargeImage("clipstudio");
+	activity.GetAssets().SetLargeText("Clip Studio Paint");
 	activity.SetType(discord::ActivityType::Playing);
 	state.core->ActivityManager().UpdateActivity(activity, [](discord::Result result) {
 		std::cout << ((result == discord::Result::Ok) ? "Succeeded" : "Failed")
 			<< " updating activity!\n";
 		});
-	std::signal(SIGINT, [](int) {
-		interrupted = true;
-		});
-	MessageBox(nullptr, L"a", L"", MB_OKCANCEL);
+
 	do {
 		state.core->RunCallbacks();
 		std::this_thread::sleep_for(std::chrono::milliseconds(16));
 	} while (!interrupted);
-	// FreeLibraryAndExitThread(static_cast<HMODULE> (lpParameter), EXIT_SUCCESS);
+	
 };
 
 BOOL APIENTRY DllMain( HMODULE hModule,
@@ -60,23 +61,66 @@ BOOL APIENTRY DllMain( HMODULE hModule,
                        LPVOID lpReserved
                      )
 {
+	static std::thread* thread;
 	if (ul_reason_for_call == DLL_PROCESS_ATTACH)
 	{
-		MessageBox(nullptr, L"b", L"", MB_OKCANCEL);
 		DisableThreadLibraryCalls(hModule);
 		
-		// auto hThread = std::thread(discordEntry);
-		// ::WaitForSingleObject(hThread, INFINITE);
+		thread = new std::thread(discordEntry);
 
-		// DWORD dwExitCode = hThread.join();
+		// discordEntry();
 
-		discordEntry();
-
-		// hThread.join();
-
-		// std::wcout << L"スレッド終了コード( " << dwExitCode << L" )" << std::endl;
-
+	}
+	else if(ul_reason_for_call == DLL_PROCESS_DETACH){
+		interrupted = true;
+		delete thread;
 	}
     return TRUE;
 }
 
+/*__declspec(dllexport) void TRIGLAV_PLUGIN_API TriglavPluginCall(TriglavPlugInInt* result, TriglavPlugInPtr* data, TriglavPlugInInt
+	selector, TriglavPlugInServer* pluginServer, TriglavPlugInPtr reserved) {
+
+}
+*/
+
+void TRIGLAV_PLUGIN_API TriglavPluginCall(TriglavPlugInInt* result, TriglavPlugInPtr* data, TriglavPlugInInt selector, TriglavPlugInServer* pluginServer, TriglavPlugInPtr reserved)
+{
+	*result = kTriglavPlugInCallResultFailed;
+	if (pluginServer != NULL)
+	{
+		if (selector == kTriglavPlugInSelectorModuleInitialize)
+		{
+			//	プラグインの初期化
+			TriglavPlugInModuleInitializeRecord* pModuleInitializeRecord = (*pluginServer).recordSuite.moduleInitializeRecord;
+			TriglavPlugInStringService* pStringService = (*pluginServer).serviceSuite.stringService;
+			if (pModuleInitializeRecord != NULL && pStringService != NULL)
+			{
+				TriglavPlugInInt	hostVersion;
+				(*pModuleInitializeRecord).getHostVersionProc(&hostVersion, (*pluginServer).hostObject);
+				if (hostVersion >= kTriglavPlugInNeedHostVersion)
+				{
+					TriglavPlugInStringObject	moduleID = NULL;
+					const char* moduleIDString = "1B8C95E4-4DDA-45D5-9F35-08560367B22F"; // random GUID
+					(*pStringService).createWithAsciiStringProc(&moduleID, moduleIDString, static_cast<TriglavPlugInInt>(::strlen(moduleIDString)));
+					(*pModuleInitializeRecord).setModuleIDProc((*pluginServer).hostObject, moduleID);
+					(*pModuleInitializeRecord).setModuleKindProc((*pluginServer).hostObject, kTriglavPlugInModuleSwitchKindFilter);
+					(*pStringService).releaseProc(moduleID); // release module ID
+
+					DiscordPluginInfo* pFilterInfo = new DiscordPluginInfo;
+					*data = pFilterInfo;
+					*result = kTriglavPlugInCallResultSuccess;
+				}
+			}
+		}
+		else if (selector == kTriglavPlugInSelectorModuleTerminate)
+		{
+			//	プラグインの終了処理
+			DiscordPluginInfo* pFilterInfo = static_cast<DiscordPluginInfo*>(*data);
+			delete pFilterInfo;
+			*data = NULL;
+			*result = kTriglavPlugInCallResultSuccess;
+		}
+	}
+	return;
+}
