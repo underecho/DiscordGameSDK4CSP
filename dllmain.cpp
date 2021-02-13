@@ -5,7 +5,7 @@
 #include <thread>
 #include <chrono>
 #include "discord-files/discord.h"
-#include "discord-files/TriglavPlugInSDK.h"
+#include "clipstudio-sdk/TriglavPlugInSDK.h"
 
 struct Application {
     struct IDiscordCore* core;
@@ -24,6 +24,8 @@ struct	DiscordPluginInfo
 {
 	TriglavPlugInPropertyService* pPropertyService;
 };
+
+int timestump;
 
 void __stdcall discordEntry() {
 	DiscordState state{};
@@ -56,6 +58,14 @@ void __stdcall discordEntry() {
 	
 };
 
+VOID CALLBACK WinEventProcCallback(HWINEVENTHOOK hWinEventHook, DWORD dwEvent, HWND hwnd, LONG idObject, LONG idChild, DWORD dwEventThread, DWORD dwmsEventTime)
+{
+	if (dwEvent == EVENT_SYSTEM_FOREGROUND)
+	{
+		// MessageBox(NULL, L"aa", L"test", MB_OK);
+	}
+}
+
 BOOL APIENTRY DllMain( HMODULE hModule,
                        DWORD  ul_reason_for_call,
                        LPVOID lpReserved
@@ -65,7 +75,14 @@ BOOL APIENTRY DllMain( HMODULE hModule,
 	if (ul_reason_for_call == DLL_PROCESS_ATTACH)
 	{
 		DisableThreadLibraryCalls(hModule);
-		
+
+		auto e = SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND, nullptr,
+			WinEventProcCallback, 0, 0, WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);
+		if (!e)
+		{
+			std::clog << "SetWinEventHook failed" << std::endl;
+			return 1;
+		}
 		thread = new std::thread(discordEntry);
 
 		// discordEntry();
