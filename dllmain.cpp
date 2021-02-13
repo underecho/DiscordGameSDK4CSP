@@ -4,8 +4,13 @@
 #include <csignal>
 #include <thread>
 #include <chrono>
+#include <windows.h>
 #include "discord-files/discord.h"
 #include "clipstudio-sdk/TriglavPlugInSDK.h"
+
+
+WNDPROC oriWndProc = NULL;
+HWND hWnd = ::FindWindowEx(0, 0, L"742DEA58-ED6B-4402-BC11-20DFC6D08040", 0);
 
 struct Application {
     struct IDiscordCore* core;
@@ -25,7 +30,44 @@ struct	DiscordPluginInfo
 	TriglavPlugInPropertyService* pPropertyService;
 };
 
+discord::Activity activity{};
+DiscordState state{};
 int timestump;
+
+LRESULT CALLBACK hWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
+{
+	if (uMsg == WM_ACTIVATE)
+	{
+		if (wParam == 1 || wParam == 2){
+			activity.SetDetails("Drawing");
+			activity.GetAssets().SetSmallImage("drawing");
+			activity.GetAssets().SetSmallText("Drawing");
+			MessageBox(nullptr, ((LPCWSTR) wParam), L"test", MB_OK);
+		}
+		else {
+			activity.SetDetails("Inactive");
+			activity.SetState("Pop Snacks");
+			activity.GetAssets().SetSmallImage("inactive");
+			activity.GetAssets().SetSmallText("Inactive");
+		}
+		MessageBox(nullptr, ((LPCWSTR)wParam), L"test", MB_OK);
+		state.core->ActivityManager().UpdateActivity(activity, [](discord::Result result) {
+			std::cout << ((result == discord::Result::Ok) ? "Succeeded" : "Failed")
+				<< " updating activity!\n";
+			});
+		return 1L;
+	}
+
+	return CallWindowProc(oriWndProc, hwnd, uMsg, wParam, lParam);
+
+}
+
+DWORD WINAPI Creation(LPVOID)
+{
+	oriWndProc = (WNDPROC)SetWindowLongPtr(hWnd, GWLP_WNDPROC, (LONG)(LONG_PTR)hWndProc);
+	// MessageBox(nullptr, L"testr", L"test", MB_OK);
+	return TRUE;
+}
 
 void __stdcall discordEntry() {
 	DiscordState state{};
@@ -40,12 +82,13 @@ void __stdcall discordEntry() {
 
 	discord::Activity activity{};
 	activity.SetDetails("Drawing");
-	activity.SetState("Pop Snacks");
+	activity.SetState("Powered by RPC4CSP");
 	activity.GetAssets().SetSmallImage("drawing");
 	activity.GetAssets().SetSmallText("Drawing");
 	activity.GetAssets().SetLargeImage("clipstudio");
 	activity.GetAssets().SetLargeText("Clip Studio Paint");
-	activity.SetType(discord::ActivityType::Playing);
+	activity.GetTimestamps().SetStart(time(NULL));
+	activity.SetType(discord::ActivityType::Streaming);
 	state.core->ActivityManager().UpdateActivity(activity, [](discord::Result result) {
 		std::cout << ((result == discord::Result::Ok) ? "Succeeded" : "Failed")
 			<< " updating activity!\n";
@@ -62,7 +105,7 @@ VOID CALLBACK WinEventProcCallback(HWINEVENTHOOK hWinEventHook, DWORD dwEvent, H
 {
 	if (dwEvent == EVENT_SYSTEM_FOREGROUND)
 	{
-		// MessageBox(NULL, L"aa", L"test", MB_OK);
+		 MessageBox(NULL, L"aa", L"test", MB_OK);
 	}
 }
 
@@ -76,17 +119,9 @@ BOOL APIENTRY DllMain( HMODULE hModule,
 	{
 		DisableThreadLibraryCalls(hModule);
 
-		auto e = SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND, nullptr,
-			WinEventProcCallback, 0, 0, WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);
-		if (!e)
-		{
-			std::clog << "SetWinEventHook failed" << std::endl;
-			return 1;
-		}
 		thread = new std::thread(discordEntry);
-
-		// discordEntry();
-
+		// oriWndProc = (WNDPROC)SetWindowLongPtr(hWnd, GWLP_WNDPROC, (LONG)(LONG_PTR)hWndProc);
+		
 	}
 	else if(ul_reason_for_call == DLL_PROCESS_DETACH){
 		interrupted = true;
