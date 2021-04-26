@@ -109,28 +109,55 @@ void __stdcall discordEntry() {
 	
 };
 
+static FORCEINLINE BOOL IsMainWindow(HWND hWnd)
+{
+	return (!GetWindow(hWnd, GW_OWNER)) && IsWindowVisible(hWnd);
+}
+
+static BOOL CALLBACK EnumWindowsCallback(HWND hWnd, LPARAM lParam)
+{
+	HANDLE_DATA* hdCallbackData;
+	DWORD dwProcessId;
+	hdCallbackData = (HANDLE_DATA*)lParam;
+	(VOID)GetWindowThreadProcessId(hWnd, &dwProcessId);
+	if (hdCallbackData->dwProcessId != dwProcessId || !IsMainWindow(hWnd)) {
+		return TRUE;
+	}
+	hdCallbackData->hWnd = hWnd;
+	return FALSE;
+}
+
+HWND APIENTRY GetMainWindow(DWORD dwProcessId)
+{
+	HANDLE_DATA hdCallbackData;
+	hdCallbackData.dwProcessId = dwProcessId;
+	hdCallbackData.hWnd = NULL;
+	(VOID)EnumWindows(EnumWindowsCallback, (LPARAM)&hdCallbackData);
+	return hdCallbackData.hWnd;
+}
+
 LRESULT CALLBACK WindowHookProc(int code, WPARAM wParam, LPARAM lParam)
 {
+	
 	if (code == WM_ACTIVATEAPP)
 	{
 		if (wParam == TRUE) {
+			MessageBox(GetMainWindow(GetCurrentProcessId()), L"setActive", L"", MB_OK);
 			activity.SetDetails("Drawing");
 			activity.GetAssets().SetSmallImage("drawing");
 			activity.GetAssets().SetSmallText("Drawing");
-			MessageBoxW(nullptr, ((LPCWSTR)wParam), L"active", MB_OK);
 		}
 		else {
+			MessageBox(GetMainWindow(GetCurrentProcessId()), L"setInActive", L"", MB_OK);
 			activity.SetDetails("Inactive");
 			activity.SetState("Pop Snacks");
 			activity.GetAssets().SetSmallImage("inactive");
 			activity.GetAssets().SetSmallText("Inactive");
 		}
-		MessageBoxW(nullptr, ((LPCWSTR)wParam), L"update", MB_OK);
 		state.core->ActivityManager().UpdateActivity(activity, [](discord::Result result) {
 			std::cout << ((result == discord::Result::Ok) ? "Succeeded" : "Failed")
 				<< " updating activity!\n";
 			});
-		return 1L;
 	}
 
 	return CallNextHookEx(NULL, code, wParam, lParam);
@@ -143,13 +170,32 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 	switch (uMsg) {
 
 	case WM_CREATE:
-		hhk = SetWindowsHookEx(WH_GETMESSAGE, WindowHookProc, NULL, GetCurrentThreadId());
+		// hhk = SetWindowsHookEx(WH_GETMESSAGE, WindowHookProc, NULL, GetCurrentThreadId());
 		return 0;
 
+	case WM_ACTIVATEAPP:
+		if (wParam == TRUE) {
+			MessageBox(GetMainWindow(GetCurrentProcessId()), L"setActive", L"", MB_OK);
+			activity.SetDetails("Drawing");
+			activity.GetAssets().SetSmallImage("drawing");
+			activity.GetAssets().SetSmallText("Drawing");
+		}
+		else {
+			MessageBox(GetMainWindow(GetCurrentProcessId()), L"setInActive", L"", MB_OK);
+			activity.SetDetails("Inactive");
+			activity.SetState("Pop Snacks");
+			activity.GetAssets().SetSmallImage("inactive");
+			activity.GetAssets().SetSmallText("Inactive");
+		}
+		state.core->ActivityManager().UpdateActivity(activity, [](discord::Result result) {
+			std::cout << ((result == discord::Result::Ok) ? "Succeeded" : "Failed")
+				<< " updating activity!\n";
+			});
+
 	case WM_DESTROY:
-		if (hhk != NULL)
+		/*if (hhk != NULL)
 			UnhookWindowsHookEx(hhk);
-		PostQuitMessage(0);
+		PostQuitMessage(0);*/
 		return 0;
 
 	default:
@@ -172,7 +218,7 @@ BOOL APIENTRY DllMain( HMODULE hModule,
 	if (ul_reason_for_call == DLL_PROCESS_ATTACH)
 	{
 		DisableThreadLibraryCalls(hModule);
-		hhk = SetWindowsHookEx(WH_GETMESSAGE, WindowHookProc, NULL, GetCurrentThreadId());
+		WNDPROC originalProc = (WNDPROC)SetWindowLongPtr(GetMainWindow(GetCurrentProcessId()), GWLP_WNDPROC, (LONG_PTR)WindowProc);
 		thread = new std::thread(discordEntry);
 		// oriWndProc = (WNDPROC)SetWindowLongPtr(hWnd, GWLP_WNDPROC, (LONG)(LONG_PTR)hWndProc);
 		
@@ -234,29 +280,3 @@ void TRIGLAV_PLUGIN_API TriglavPluginCall(TriglavPlugInInt* result, TriglavPlugI
 }
 
 
-//static FORCEINLINE BOOL IsMainWindow(HWND hWnd)
-//{
-//	return (!GetWindow(hWnd, GW_OWNER)) && IsWindowVisible(hWnd);
-//}
-//
-//static BOOL CALLBACK EnumWindowsCallback(HWND hWnd, LPARAM lParam)
-//{
-//	HANDLE_DATA* hdCallbackData;
-//	DWORD dwProcessId;
-//	hdCallbackData = (HANDLE_DATA*)lParam;
-//	(VOID)GetWindowThreadProcessId(hWnd, &dwProcessId);
-//	if (hdCallbackData->dwProcessId != dwProcessId || !IsMainWindow(hWnd)) {
-//		return TRUE;
-//	}
-//	hdCallbackData->hWnd = hWnd;
-//	return FALSE;
-//}
-//
-//HWND APIENTRY GetMainWindow(DWORD dwProcessId)
-//{
-//	HANDLE_DATA hdCallbackData;
-//	hdCallbackData.dwProcessId = dwProcessId;
-//	hdCallbackData.hWnd = NULL;
-//	(VOID)EnumWindows(EnumWindowsCallback, (LPARAM)&hdCallbackData);
-//	return hdCallbackData.hWnd;
-//}
