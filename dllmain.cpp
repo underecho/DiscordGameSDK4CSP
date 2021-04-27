@@ -8,14 +8,18 @@
 #include "discord-files/discord.h"
 #include "clipstudio-sdk/TriglavPlugInSDK.h"
 
-
 WNDPROC oriWndProc = NULL;
-HWND hWnd = ::FindWindowEx(0, 0, L"742DEA58-ED6B-4402-BC11-20DFC6D08040", 0);
 
 struct Application {
     struct IDiscordCore* core;
     struct IDiscordUsers* users;
 };
+
+typedef struct {
+	_In_ DWORD dwProcessId;
+	_Out_ HWND hWnd;
+} HANDLE_DATA;
+
 
 struct DiscordState {
 	std::unique_ptr<discord::Core> core;
@@ -30,48 +34,16 @@ struct	DiscordPluginInfo
 	TriglavPlugInPropertyService* pPropertyService;
 };
 
+WNDPROC originalProc;
 discord::Activity activity{};
 DiscordState state{};
-int timestump;
+discord::Core* core{};
+int timestamp;
+char status;
 
-LRESULT CALLBACK hWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
-{
-	if (uMsg == WM_ACTIVATE)
-	{
-		if (wParam == 1 || wParam == 2){
-			activity.SetDetails("Drawing");
-			activity.GetAssets().SetSmallImage("drawing");
-			activity.GetAssets().SetSmallText("Drawing");
-			MessageBox(nullptr, ((LPCWSTR) wParam), L"test", MB_OK);
-		}
-		else {
-			activity.SetDetails("Inactive");
-			activity.SetState("Pop Snacks");
-			activity.GetAssets().SetSmallImage("inactive");
-			activity.GetAssets().SetSmallText("Inactive");
-		}
-		MessageBox(nullptr, ((LPCWSTR)wParam), L"test", MB_OK);
-		state.core->ActivityManager().UpdateActivity(activity, [](discord::Result result) {
-			std::cout << ((result == discord::Result::Ok) ? "Succeeded" : "Failed")
-				<< " updating activity!\n";
-			});
-		return 1L;
-	}
-
-	return CallWindowProc(oriWndProc, hwnd, uMsg, wParam, lParam);
-
-}
-
-DWORD WINAPI Creation(LPVOID)
-{
-	oriWndProc = (WNDPROC)SetWindowLongPtr(hWnd, GWLP_WNDPROC, (LONG)(LONG_PTR)hWndProc);
-	// MessageBox(nullptr, L"testr", L"test", MB_OK);
-	return TRUE;
-}
+// Discord RPC Entry
 
 void __stdcall discordEntry() {
-	DiscordState state{};
-	discord::Core* core{};
 	auto response = discord::Core::Create(771084728300339251, DiscordCreateFlags_Default, &core);
 	state.core.reset(core);
 
@@ -80,7 +52,6 @@ void __stdcall discordEntry() {
 		std::exit(-1);
 	}
 
-	discord::Activity activity{};
 	activity.SetDetails("Drawing");
 	activity.SetState("Powered by RPC4CSP");
 	activity.GetAssets().SetSmallImage("drawing");
@@ -101,13 +72,66 @@ void __stdcall discordEntry() {
 	
 };
 
-VOID CALLBACK WinEventProcCallback(HWINEVENTHOOK hWinEventHook, DWORD dwEvent, HWND hwnd, LONG idObject, LONG idChild, DWORD dwEventThread, DWORD dwmsEventTime)
+// Window handle helper
+static FORCEINLINE BOOL IsMainWindow(HWND hWnd)
 {
-	if (dwEvent == EVENT_SYSTEM_FOREGROUND)
-	{
-		 MessageBox(NULL, L"aa", L"test", MB_OK);
-	}
+	return (!GetWindow(hWnd, GW_OWNER)) && IsWindowVisible(hWnd);
 }
+
+static BOOL CALLBACK EnumWindowsCallback(HWND hWnd, LPARAM lParam)
+{
+	HANDLE_DATA* hdCallbackData;
+	DWORD dwProcessId;
+	hdCallbackData = (HANDLE_DATA*)lParam;
+	(VOID)GetWindowThreadProcessId(hWnd, &dwProcessId);
+	if (hdCallbackData->dwProcessId != dwProcessId || !IsMainWindow(hWnd)) {
+		return TRUE;
+	}
+	hdCallbackData->hWnd = hWnd;
+	return FALSE;
+}
+
+HWND APIENTRY GetMainWindow(DWORD dwProcessId)
+{
+	HANDLE_DATA hdCallbackData;
+	hdCallbackData.dwProcessId = dwProcessId;
+	hdCallbackData.hWnd = NULL;
+	(VOID)EnumWindows(EnumWindowsCallback, (LPARAM)&hdCallbackData);
+	return hdCallbackData.hWnd;
+}
+
+// Override WindowProc
+LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
+{
+	static HHOOK hhk = NULL;
+
+	switch (uMsg) {
+
+	case WM_ACTIVATEAPP:
+		if (wParam == TRUE) {
+			activity.SetDetails("Drawing");
+			activity.GetAssets().SetSmallImage("drawing");
+			activity.GetAssets().SetSmallText("Drawing");
+		}
+		else {
+			activity.SetDetails("Inactive");
+			// activity.SetState("Pop Snacks");
+			activity.GetAssets().SetSmallImage("inactive");
+			activity.GetAssets().SetSmallText("Inactive");
+		}
+		state.core->ActivityManager().UpdateActivity(activity, [](discord::Result result) {
+			std::cout << ((result == discord::Result::Ok) ? "Succeeded" : "Failed")
+				<< " updating activity!\n";
+			});
+		break;
+
+	default:
+		break;
+	}
+	return CallWindowProc(originalProc, hwnd, uMsg, wParam, lParam);
+}
+
+// DLL EntryPoint
 
 BOOL APIENTRY DllMain( HMODULE hModule,
                        DWORD  ul_reason_for_call,
@@ -118,9 +142,8 @@ BOOL APIENTRY DllMain( HMODULE hModule,
 	if (ul_reason_for_call == DLL_PROCESS_ATTACH)
 	{
 		DisableThreadLibraryCalls(hModule);
-
+		originalProc = (WNDPROC)SetWindowLongPtr(GetMainWindow(GetCurrentProcessId()), GWLP_WNDPROC, (LONG_PTR)WindowProc);
 		thread = new std::thread(discordEntry);
-		// oriWndProc = (WNDPROC)SetWindowLongPtr(hWnd, GWLP_WNDPROC, (LONG)(LONG_PTR)hWndProc);
 		
 	}
 	else if(ul_reason_for_call == DLL_PROCESS_DETACH){
@@ -130,12 +153,7 @@ BOOL APIENTRY DllMain( HMODULE hModule,
     return TRUE;
 }
 
-/*__declspec(dllexport) void TRIGLAV_PLUGIN_API TriglavPluginCall(TriglavPlugInInt* result, TriglavPlugInPtr* data, TriglavPlugInInt
-	selector, TriglavPlugInServer* pluginServer, TriglavPlugInPtr reserved) {
-
-}
-*/
-
+// CSP Plugin Entry
 void TRIGLAV_PLUGIN_API TriglavPluginCall(TriglavPlugInInt* result, TriglavPlugInPtr* data, TriglavPlugInInt selector, TriglavPlugInServer* pluginServer, TriglavPlugInPtr reserved)
 {
 	*result = kTriglavPlugInCallResultFailed;
@@ -176,3 +194,5 @@ void TRIGLAV_PLUGIN_API TriglavPluginCall(TriglavPlugInInt* result, TriglavPlugI
 	}
 	return;
 }
+
+
