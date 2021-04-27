@@ -52,7 +52,6 @@ void __stdcall discordEntry() {
 		std::exit(-1);
 	}
 
-	discord::Activity activity{};
 	activity.SetDetails("Drawing");
 	activity.SetState("Powered by RPC4CSP");
 	activity.GetAssets().SetSmallImage("drawing");
