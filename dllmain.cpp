@@ -8,9 +8,7 @@
 #include "discord-files/discord.h"
 #include "clipstudio-sdk/TriglavPlugInSDK.h"
 
-LRESULT CALLBACK WindowHookProc(int code, WPARAM wParam, LPARAM lParam);
 WNDPROC oriWndProc = NULL;
-static HHOOK hhk = NULL;
 
 struct Application {
     struct IDiscordCore* core;
@@ -36,48 +34,14 @@ struct	DiscordPluginInfo
 	TriglavPlugInPropertyService* pPropertyService;
 };
 
+WNDPROC originalProc;
 discord::Activity activity{};
 DiscordState state{};
 discord::Core* core{};
 int timestamp;
 char status;
 
-
-LRESULT CALLBACK hWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
-{
-	if (uMsg == WM_ACTIVATEAPP)
-	{
-		if (wParam == TRUE){
-			activity.SetDetails("Drawing");
-			activity.GetAssets().SetSmallImage("drawing");
-			activity.GetAssets().SetSmallText("Drawing");
-			MessageBoxW(nullptr, ((LPCWSTR) wParam), L"active", MB_OK);
-		}
-		else {
-			activity.SetDetails("Inactive");
-			activity.SetState("Pop Snacks");
-			activity.GetAssets().SetSmallImage("inactive");
-			activity.GetAssets().SetSmallText("Inactive");
-		}
-		MessageBoxW(nullptr, ((LPCWSTR)wParam), L"update", MB_OK);
-		state.core->ActivityManager().UpdateActivity(activity, [](discord::Result result) {
-			std::cout << ((result == discord::Result::Ok) ? "Succeeded" : "Failed")
-				<< " updating activity!\n";
-			});
-		return 1L;
-	}
-
-		return DefWindowProc(hwnd, uMsg, wParam, lParam);
-
-
-}
-
-//DWORD WINAPI Creation(LPVOID)
-//{
-//	oriWndProc = (WNDPROC)SetWindowLongPtr(hWnd, GWLP_WNDPROC, (LONG)(LONG_PTR)hWndProc);
-//	// MessageBox(nullptr, L"testr", L"test", MB_OK);
-//	return TRUE;
-//}
+// Discord RPC Entry
 
 void __stdcall discordEntry() {
 	auto response = discord::Core::Create(771084728300339251, DiscordCreateFlags_Default, &core);
@@ -109,6 +73,7 @@ void __stdcall discordEntry() {
 	
 };
 
+// Window handle helper
 static FORCEINLINE BOOL IsMainWindow(HWND hWnd)
 {
 	return (!GetWindow(hWnd, GW_OWNER)) && IsWindowVisible(hWnd);
@@ -136,54 +101,22 @@ HWND APIENTRY GetMainWindow(DWORD dwProcessId)
 	return hdCallbackData.hWnd;
 }
 
-LRESULT CALLBACK WindowHookProc(int code, WPARAM wParam, LPARAM lParam)
-{
-	
-	if (code == WM_ACTIVATEAPP)
-	{
-		if (wParam == TRUE) {
-			MessageBox(GetMainWindow(GetCurrentProcessId()), L"setActive", L"", MB_OK);
-			activity.SetDetails("Drawing");
-			activity.GetAssets().SetSmallImage("drawing");
-			activity.GetAssets().SetSmallText("Drawing");
-		}
-		else {
-			MessageBox(GetMainWindow(GetCurrentProcessId()), L"setInActive", L"", MB_OK);
-			activity.SetDetails("Inactive");
-			activity.SetState("Pop Snacks");
-			activity.GetAssets().SetSmallImage("inactive");
-			activity.GetAssets().SetSmallText("Inactive");
-		}
-		state.core->ActivityManager().UpdateActivity(activity, [](discord::Result result) {
-			std::cout << ((result == discord::Result::Ok) ? "Succeeded" : "Failed")
-				<< " updating activity!\n";
-			});
-	}
-
-	return CallNextHookEx(NULL, code, wParam, lParam);
-}
-
+// Override WindowProc
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
 	static HHOOK hhk = NULL;
 
 	switch (uMsg) {
 
-	case WM_CREATE:
-		// hhk = SetWindowsHookEx(WH_GETMESSAGE, WindowHookProc, NULL, GetCurrentThreadId());
-		return 0;
-
 	case WM_ACTIVATEAPP:
 		if (wParam == TRUE) {
-			MessageBox(GetMainWindow(GetCurrentProcessId()), L"setActive", L"", MB_OK);
 			activity.SetDetails("Drawing");
 			activity.GetAssets().SetSmallImage("drawing");
 			activity.GetAssets().SetSmallText("Drawing");
 		}
 		else {
-			MessageBox(GetMainWindow(GetCurrentProcessId()), L"setInActive", L"", MB_OK);
 			activity.SetDetails("Inactive");
-			activity.SetState("Pop Snacks");
+			// activity.SetState("Pop Snacks");
 			activity.GetAssets().SetSmallImage("inactive");
 			activity.GetAssets().SetSmallText("Inactive");
 		}
@@ -191,23 +124,15 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 			std::cout << ((result == discord::Result::Ok) ? "Succeeded" : "Failed")
 				<< " updating activity!\n";
 			});
-
-	case WM_DESTROY:
-		/*if (hhk != NULL)
-			UnhookWindowsHookEx(hhk);
-		PostQuitMessage(0);*/
-		return 0;
+		break;
 
 	default:
 		break;
-
 	}
-
-	return DefWindowProc(hwnd, uMsg, wParam, lParam);
+	return CallWindowProc(originalProc, hwnd, uMsg, wParam, lParam);
 }
 
-
-
+// DLL EntryPoint
 
 BOOL APIENTRY DllMain( HMODULE hModule,
                        DWORD  ul_reason_for_call,
@@ -218,26 +143,18 @@ BOOL APIENTRY DllMain( HMODULE hModule,
 	if (ul_reason_for_call == DLL_PROCESS_ATTACH)
 	{
 		DisableThreadLibraryCalls(hModule);
-		WNDPROC originalProc = (WNDPROC)SetWindowLongPtr(GetMainWindow(GetCurrentProcessId()), GWLP_WNDPROC, (LONG_PTR)WindowProc);
+		originalProc = (WNDPROC)SetWindowLongPtr(GetMainWindow(GetCurrentProcessId()), GWLP_WNDPROC, (LONG_PTR)WindowProc);
 		thread = new std::thread(discordEntry);
-		// oriWndProc = (WNDPROC)SetWindowLongPtr(hWnd, GWLP_WNDPROC, (LONG)(LONG_PTR)hWndProc);
 		
 	}
 	else if(ul_reason_for_call == DLL_PROCESS_DETACH){
 		interrupted = true;
 		delete thread;
-		if (hhk != NULL)
-			UnhookWindowsHookEx(hhk);
 	}
     return TRUE;
 }
 
-/*__declspec(dllexport) void TRIGLAV_PLUGIN_API TriglavPluginCall(TriglavPlugInInt* result, TriglavPlugInPtr* data, TriglavPlugInInt
-	selector, TriglavPlugInServer* pluginServer, TriglavPlugInPtr reserved) {
-
-}
-*/
-
+// CSP Plugin Entry
 void TRIGLAV_PLUGIN_API TriglavPluginCall(TriglavPlugInInt* result, TriglavPlugInPtr* data, TriglavPlugInInt selector, TriglavPlugInServer* pluginServer, TriglavPlugInPtr reserved)
 {
 	*result = kTriglavPlugInCallResultFailed;
