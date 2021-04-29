@@ -1,5 +1,4 @@
-﻿// dllmain.cpp : DLL アプリケーションのエントリ ポイントを定義します。
-#include "pch.h"
+﻿#include "pch.h"
 #include <iostream>
 #include <csignal>
 #include <thread>
@@ -8,11 +7,9 @@
 #include "discord-files/discord.h"
 #include "clipstudio-sdk/TriglavPlugInSDK.h"
 
-WNDPROC oriWndProc = NULL;
-
 struct Application {
-    struct IDiscordCore* core;
-    struct IDiscordUsers* users;
+	struct IDiscordCore* core;
+	struct IDiscordUsers* users;
 };
 
 typedef struct {
@@ -38,7 +35,9 @@ WNDPROC originalProc;
 discord::Activity activity{};
 DiscordState state{};
 discord::Core* core{};
-int timestamp;
+time_t time(time_t* timer);
+time_t timestamp_start;
+time_t timestamp_delta;
 char status;
 
 // Discord RPC Entry
@@ -51,15 +50,15 @@ void __stdcall discordEntry() {
 		std::cout << "Failed to instantiate Discord!";
 		std::exit(-1);
 	}
-
+	time(&timestamp_start);
 	activity.SetDetails("Drawing");
 	activity.SetState("Powered by RPC4CSP");
 	activity.GetAssets().SetSmallImage("drawing");
 	activity.GetAssets().SetSmallText("Drawing");
 	activity.GetAssets().SetLargeImage("clipstudio");
 	activity.GetAssets().SetLargeText("Clip Studio Paint");
-	activity.GetTimestamps().SetStart(time(NULL));
-	activity.SetType(discord::ActivityType::Streaming);
+	activity.GetTimestamps().SetStart(timestamp_start);
+	activity.SetType(discord::ActivityType::Watching);
 	state.core->ActivityManager().UpdateActivity(activity, [](discord::Result result) {
 		std::cout << ((result == discord::Result::Ok) ? "Succeeded" : "Failed")
 			<< " updating activity!\n";
@@ -103,17 +102,20 @@ HWND APIENTRY GetMainWindow(DWORD dwProcessId)
 // Override WindowProc
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
-	static HHOOK hhk = NULL;
 
 	switch (uMsg) {
 
 	case WM_ACTIVATEAPP:
 		if (wParam == TRUE) {
+			timestamp_start = time(NULL) - timestamp_delta;
+			activity.GetTimestamps().SetStart(timestamp_start);
 			activity.SetDetails("Drawing");
 			activity.GetAssets().SetSmallImage("drawing");
 			activity.GetAssets().SetSmallText("Drawing");
 		}
 		else {
+			timestamp_delta = time(NULL) - timestamp_start;
+			activity.GetTimestamps().SetStart(0);
 			activity.SetDetails("Inactive");
 			// activity.SetState("Pop Snacks");
 			activity.GetAssets().SetSmallImage("inactive");
