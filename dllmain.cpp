@@ -3,9 +3,16 @@
 #include <csignal>
 #include <thread>
 #include <chrono>
+#include <codecvt>
 #include <windows.h>
+#include <comdef.h>
 #include "discord-files/discord.h"
 #include "clipstudio-sdk/TriglavPlugInSDK.h"
+
+#define BASEADDRESS 0x0386A6F0
+#define OFFSET1 0xC8
+#define OFFSET2 0x188
+#define OFFSET3 0x200
 
 struct Application {
 	struct IDiscordCore* core;
@@ -35,13 +42,33 @@ WNDPROC originalProc;
 discord::Activity activity{};
 DiscordState state{};
 discord::Core* core{};
+
 time_t time(time_t* timer);
 time_t timestamp_start;
 time_t timestamp_delta;
-char status;
+auto base_address = reinterpret_cast<uint64_t>(GetModuleHandleA(nullptr));
+
+static auto get_value_from_multi_pointer(const uint64_t base_address) {
+	uint64_t address = base_address;
+	auto handle = GetCurrentProcess();
+	uint64_t title_base = NULL;
+	auto pTitle = reinterpret_cast<uintptr_t*>(address + BASEADDRESS);
+	title_base = *pTitle;
+
+	// ReadProcessMemory(handle, reinterpret_cast<LPCVOID>(address + BASEADDRESS), &title_base, sizeof(uint64_t), nullptr);
+	uint64_t first_dereference = NULL;
+	ReadProcessMemory(handle, reinterpret_cast<LPCVOID>(title_base + OFFSET1), &first_dereference, sizeof(uint64_t), nullptr);
+	_com_error err(GetLastError());
+	std::cout << err.ErrorMessage() << std::endl;
+	uint64_t second_dereference = NULL;
+	ReadProcessMemory(handle, reinterpret_cast<LPCVOID>(first_dereference + OFFSET2), &second_dereference, sizeof(uint64_t), nullptr);
+	uint64_t third_dereference = NULL;
+	ReadProcessMemory(handle, reinterpret_cast<LPCVOID>(second_dereference + OFFSET3), &third_dereference, sizeof(uint64_t), nullptr);
+
+	return third_dereference;
+}
 
 // Discord RPC Entry
-
 void __stdcall discordEntry() {
 	auto response = discord::Core::Create(771084728300339251, DiscordCreateFlags_Default, &core);
 	state.core.reset(core);
@@ -107,17 +134,27 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 
 	case WM_ACTIVATEAPP:
 		if (wParam == TRUE) {
+			uint64_t text;
+			text = get_value_from_multi_pointer(base_address);
+			LPCWSTR lpcwTitleText = (LPCWSTR) text;
 			timestamp_start = time(NULL) - timestamp_delta;
 			activity.GetTimestamps().SetStart(timestamp_start);
-			activity.SetDetails("Drawing");
+
+			std::wstring_convert<std::codecvt_utf8<wchar_t>> cvt;
+			std::string titleText = cvt.to_bytes(lpcwTitleText); // c++ の std::string
+			std::string filenameText = "";
+			filenameText = titleText.substr(0, titleText.find_last_of('('));
+
+			auto rawFilenameText = filenameText.c_str(); // char *
+
+			activity.SetDetails(rawFilenameText); // wchar_t → utf8
 			activity.GetAssets().SetSmallImage("drawing");
 			activity.GetAssets().SetSmallText("Drawing");
 		}
-		else {
+		else { // Window going to background
 			timestamp_delta = time(NULL) - timestamp_start;
 			activity.GetTimestamps().SetStart(0);
 			activity.SetDetails("Inactive");
-			// activity.SetState("Pop Snacks");
 			activity.GetAssets().SetSmallImage("inactive");
 			activity.GetAssets().SetSmallText("Inactive");
 		}
@@ -134,7 +171,6 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 }
 
 // DLL EntryPoint
-
 BOOL APIENTRY DllMain( HMODULE hModule,
                        DWORD  ul_reason_for_call,
                        LPVOID lpReserved
@@ -145,8 +181,7 @@ BOOL APIENTRY DllMain( HMODULE hModule,
 	{
 		DisableThreadLibraryCalls(hModule);
 		originalProc = (WNDPROC)SetWindowLongPtr(GetMainWindow(GetCurrentProcessId()), GWLP_WNDPROC, (LONG_PTR)WindowProc);
-		thread = new std::thread(discordEntry);
-		
+		thread = new std::thread(discordEntry); // make Discord RPC thread
 	}
 	else if(ul_reason_for_call == DLL_PROCESS_DETACH){
 		interrupted = true;
