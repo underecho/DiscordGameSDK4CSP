@@ -1,3 +1,11 @@
+# Currently not working.
+When the CSP is updated, the title offset of the CSP moves.
+Therefore, a memory scan algorithm needs to be implemented.
+
+This will take some time as it requires some study to implement.
+If you can help with the implementation please send me a PR.
+
+
 # DiscordGameSDK4CSP
 Discord Game SDK Plugin for Clip studio PAINT
 
